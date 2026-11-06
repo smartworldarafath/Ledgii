@@ -1,0 +1,15 @@
+# Build output & caches
+build/
+dist/
+*.apk
+*.idsig
+*.log
+.gradle/
+local.properties
+.idea/
+*.keystore
+*.jks
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,80 @@
+.class final Lcom/google/android/gms/internal/mlkit_genai_prompt/zzot;
+.super Lkotlin/coroutines/jvm/internal/SuspendLambda;
+.source "com.google.mlkit:genai-prompt@@1.0.0-beta2"
+
+# interfaces
+.implements Lkotlin/jvm/functions/Function2;
+
+
+# instance fields
+.field synthetic zza:Ljava/lang/Object;
+
+
+# direct methods
+.method constructor <init>(Lkotlin/coroutines/Continuation;)V
+    .locals 1
+
+    const/4 v0, 0x2
+
+    invoke-direct {p0, v0, p1}, Lkotlin/coroutines/jvm/internal/SuspendLambda;-><init>(ILkotlin/coroutines/Continuation;)V
+
+    return-void
+.end method
+
+
+# virtual methods
+.method public final create(Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Lkotlin/coroutines/Continuation;
+    .locals 1
+
+    new-instance v0, Lcom/google/android/gms/internal/mlkit_genai_prompt/zzot;
+
+    invoke-direct {v0, p2}, Lcom/google/android/gms/internal/mlkit_genai_prompt/zzot;-><init>(Lkotlin/coroutines/Continuation;)V
+
+    iput-object p1, v0, Lcom/google/android/gms/internal/mlkit_genai_prompt/zzot;->zza:Ljava/lang/Object;
+
+    check-cast v0, Lkotlin/coroutines/Continuation;
+
+    return-object v0
+.end method
+
+.method public final bridge synthetic invoke(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+    .locals 0
+
+    check-cast p1, Ljava/util/Map;
+
+    check-cast p2, Lkotlin/coroutines/Continuation;
+
+    .line 1
+    invoke-virtual {p0, p1, p2}, Lcom/google/android/gms/internal/mlkit_genai_prompt/zzot;->create(Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Lkotlin/coroutines/Continuation;
+
+    move-result-object p1
+
+    check-cast p1, Lcom/google/android/gms/internal/mlkit_genai_prompt/zzot;
+
+    sget-object p2, Lkotlin/Unit;->INSTANCE:Lkotlin/Unit;
+
+    invoke-virtual {p1, p2}, Lcom/google/android/gms/internal/mlkit_genai_prompt/zzot;->invokeSuspend(Ljava/lang/Object;)Ljava/lang/Object;
+
+    move-result-object p1
+
+    return-object p1
+.end method
+
+.method public final invokeSuspend(Ljava/lang/Object;)Ljava/lang/Object;
+    .locals 0
+
+    invoke-static {}, Lkotlin/coroutines/intrinsics/IntrinsicsKt;->getCOROUTINE_SUSPENDED()Ljava/lang/Object;
+
+    .line 1
+    invoke-static {p1}, Lkotlin/ResultKt;->throwOnFailure(Ljava/lang/Object;)V
+
+    iget-object p1, p0, Lcom/google/android/gms/internal/mlkit_genai_prompt/zzot;->zza:Ljava/lang/Object;
+
+    check-cast p1, Ljava/util/Map;
+
+    invoke-static {p1}, Lkotlin/collections/MapsKt;->toMap(Ljava/util/Map;)Ljava/util/Map;
+
+    move-result-object p1
+
+    return-object p1
+.end method

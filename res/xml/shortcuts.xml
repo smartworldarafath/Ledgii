@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts
+  xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:icon="@drawable/ic_shortcut_add" android:enabled="true" android:shortcutId="add_txn" android:shortcutShortLabel="@string/shortcut_add_short" android:shortcutLongLabel="@string/shortcut_add_long">
+        <intent android:targetPackage="com.derek.arrudaledger" android:action="com.derek.arrudaledger.ADD_TXN" android:targetClass="com.derek.arrudaledger.MainActivity" />
+    </shortcut>
+</shortcuts>

@@ -1,0 +1,929 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Ledgii — setup flow</title>
+<style>
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  /* No body rules: this stylesheet is injected into the running app on web, and
+     anything targeting body would restyle the app around it. */
+  .lg-setup-host{font:400 15px system-ui,-apple-system,"Segoe UI",sans-serif}
+  /* Full-bleed — it is the screen, not a framed demo.
+     Sizing note, learned the hard way: a percentage height on a fixed element is
+     measured against the window, and inside an embedded panel in a native app
+     that measurement can be taken while the panel still has no height. Zero in,
+     zero out — the flow paints perfectly into a box nobody can see. So the four
+     pinned edges define the size (they cannot resolve to zero), viewport units
+     are the fallback rather than the foundation, and a minimum height keeps an
+     early or bogus measurement from collapsing the whole flow. */
+  .phone{position:fixed; top:0; right:0; bottom:0; left:0; width:100%; border-radius:0;
+         min-height:100vh; overflow:hidden; box-shadow:none}
+  @supports (height: 100dvh) { .phone{min-height:100dvh} }
+  .page{position:absolute; top:0; right:0; bottom:0; left:0; display:flex; flex-direction:column;
+        padding:calc(env(safe-area-inset-top,0px) + 26px) 22px calc(env(safe-area-inset-bottom,0px) + 22px);
+        opacity:0; transform:translateX(26px); pointer-events:none;
+        transition:opacity .30s ease, transform .34s cubic-bezier(.2,.85,.25,1)}
+  .page.on{opacity:1; transform:translateX(0); pointer-events:auto}
+  /* First paint after sign-in / log-in: rise and settle instead of cutting in. */
+  #pg0.on{animation:suEnter .44s cubic-bezier(.2,.9,.2,1) both}
+  @keyframes suEnter{from{opacity:0; transform:translateY(16px) scale(.985)} to{opacity:1; transform:none}}
+  .page.off-l{transform:translateX(-26px)}
+  .phone h1{font-size:27px; font-weight:800; letter-spacing:-.5px; line-height:1.15; margin:0}
+  .sub{font-size:14px; font-weight:600; line-height:1.45; margin:9px 0 0}
+  .lbl{font-size:12.5px; font-weight:700; margin:14px 0 6px 6px}
+  /* A scrolling box clips at its own edge, so anything that springs past its
+     normal size — the plan cards, their badges — was getting shaved. The box is
+     pulled 9px wider on each side and padded back by the same amount: children
+     land exactly where they did, with room for the overshoot to grow into. */
+  /* touch-action tells the engine this box is a vertical scroller before the
+     gesture finishes — without it the first drag is ambiguous, which is the
+     window an ancestor uses to claim it. */
+  .grow{flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; touch-action:pan-y;
+        -webkit-overflow-scrolling:touch;
+        margin:0 -9px; padding:0 9px 9px;
+        scrollbar-width:none; -ms-overflow-style:none}
+  .grow::-webkit-scrollbar{width:0; height:0}
+  .btnrow{display:flex; gap:10px; padding-top:14px}
+  .primary{flex:1; border:none; border-radius:999px; padding:17px; cursor:pointer;
+           font:800 15.5px system-ui,sans-serif; transition:transform .12s, filter .15s}
+  .primary:active{transform:scale(.97); filter:brightness(.92)}
+  .ghost{flex:0 0 auto; min-width:104px; border-radius:999px; padding:17px 18px; cursor:pointer;
+         font:800 15.5px system-ui,sans-serif; background:transparent}
+  .track{display:flex; gap:6px; margin:2px 0 18px}
+  .tstep{flex:1; text-align:center}
+  .tbar{height:4px; border-radius:99px; overflow:hidden; margin-bottom:6px}
+  .tbar i{display:block; height:100%; width:0; border-radius:99px; transition:width .45s cubic-bezier(.2,.85,.25,1)}
+  .tstep.done .tbar i{width:100%}
+  .tstep.now .tbar i{width:45%}
+  .tstep span{font-size:10.5px; font-weight:800; letter-spacing:.3px}
+  /* 16px minimum: anything smaller makes iOS Safari zoom in on focus. */
+  .phone input, .phone select{font:700 16px system-ui,sans-serif; border-radius:16px; padding:13px 14px;
+        border:1.5px solid transparent; outline:none; width:100%}
+  .row2{display:flex; gap:8px}
+  /* Both fields share the row evenly. Without this the width:100% input wins
+     and squeezes the weekday / due-day control down to nothing. */
+  .row2 > *{flex:1 1 0; min-width:0}
+  /* The weekday / due-day control only needs a short value, so it takes a
+     quarter of the row and the amount field keeps the rest. */
+  .row2 > .narrow{flex:0 0 27%}
+  .row2 select, .row2 input{width:100%; min-width:0}
+  .addbtn{border:none; border-radius:14px; padding:12px; width:100%; cursor:pointer;
+          font:800 14px system-ui,sans-serif; margin-top:10px}
+  .item{border-radius:18px; padding:14px; margin-bottom:10px}
+  /* Each source is its own card, the way Settings lists them: a quiet
+     caption, the fields, and an X that removes the whole thing. */
+  .ihead{display:flex; align-items:center; justify-content:space-between; margin-bottom:9px}
+  .iname{font-size:11px; font-weight:800; letter-spacing:.5px}
+  .del{border:none; background:transparent; cursor:pointer; padding:5px; border-radius:10px;
+       line-height:0; transition:transform .12s}
+  .del:active{transform:scale(.88)}
+  .seg{display:flex; gap:6px; padding:4px; border-radius:999px; margin:10px 0 2px}
+  .seg button{flex:1; padding:10px 0; border:none; border-radius:999px; cursor:pointer;
+              font:800 13px system-ui,sans-serif}
+  .lg-details summary::-webkit-details-marker{display:none}
+  /* ── week cards ──
+     Copied from the app's own Plan tab so the preview behaves identically:
+     the whole card is the target, the caret turns, and the body opens by
+     animating a grid row from 0fr to 1fr rather than a measured height. */
+  .su-wk{transition: transform .11s ease, background .18s ease, box-shadow .25s}
+  .su-wk-tap{cursor:pointer}
+  .su-wk-tap:active{transform:scale(.989)}
+  .su-wk-cue{display:flex; align-items:center; gap:6px}
+  .su-wk-caret{display:inline-block; font-size:11px; line-height:1;
+               transition: transform .21s cubic-bezier(.26,.82,.28,1)}
+  .su-wk[aria-expanded='true'] .su-wk-caret{transform:rotate(180deg)}
+  .su-wk-body{display:grid; grid-template-rows:0fr;
+              transition: grid-template-rows .29s cubic-bezier(.26,.82,.28,1)}
+  .su-wk[aria-expanded='true'] .su-wk-body{grid-template-rows:1fr}
+  .su-wk-bodyinner{overflow:hidden; min-height:0}
+  .plan{display:flex; align-items:center; gap:12px; border-radius:20px; padding:15px 16px;
+        margin-bottom:12px; cursor:pointer; position:relative; border:1.5px solid transparent;
+        transition:transform .18s cubic-bezier(.34,1.56,.64,1), border-color .2s, box-shadow .2s}
+  .plan:active{transform:scale(.97)}
+  /* the chosen card springs past its size and settles — a small confirmation */
+  .plan.pop{animation:planPop .34s cubic-bezier(.34,1.56,.64,1)}
+  /* ── the moment after subscribing ──
+     A held beat between "I just paid" and the app itself: the ring draws, the
+     line lands, then the whole flow lifts away so the home screen is revealed
+     rather than cut to. */
+  .su-done{position:absolute; top:0; right:0; bottom:0; left:0; display:flex; flex-direction:column;
+           align-items:center; justify-content:center; gap:16px; text-align:center;
+           padding:0 34px; opacity:0; animation:suDoneIn .34s ease both; z-index:5}
+  @keyframes suDoneIn{from{opacity:0} to{opacity:1}}
+  .su-ring{width:84px; height:84px; border-radius:999px; display:flex; align-items:center;
+           justify-content:center; animation:suRing .52s cubic-bezier(.34,1.56,.64,1) both}
+  @keyframes suRing{0%{transform:scale(.4); opacity:0} 60%{opacity:1} 100%{transform:scale(1); opacity:1}}
+  .su-ring path{stroke-dasharray:30; stroke-dashoffset:30; animation:suTick .42s .22s ease-out both}
+  @keyframes suTick{to{stroke-dashoffset:0}}
+  .su-done h2{margin:0; font-size:24px; font-weight:800; letter-spacing:-.4px;
+              animation:suRise .44s .18s cubic-bezier(.2,.9,.2,1) both}
+  .su-done p{margin:0; font-size:14.5px; font-weight:600; line-height:1.45;
+             animation:suRise .44s .3s cubic-bezier(.2,.9,.2,1) both}
+  @keyframes suRise{from{opacity:0; transform:translateY(12px)} to{opacity:1; transform:none}}
+  /* the hand-off itself: lift and fade, so the app appears behind it */
+  .phone.su-leave{animation:suLeave .42s cubic-bezier(.4,0,.2,1) both}
+  @keyframes suLeave{to{opacity:0; transform:scale(1.04)}}
+  @keyframes planPop{ 0%{transform:scale(.97)} 55%{transform:scale(1.035)} 100%{transform:scale(1)} }
+  .badge{position:absolute; top:-9px; left:14px; font-size:10px; font-weight:800; letter-spacing:.5px;
+         border-radius:99px; padding:3px 9px}
+  .feat{font-size:13.5px; font-weight:600; line-height:1.7; margin:12px 0 0}
+  .soft{font-size:12px; font-weight:600; line-height:1.55; text-align:center; margin-top:12px}
+</style></head>
+<body>
+<div class="phone" id="phone"></div>
+<script>
+/* First line of defense: any error anywhere in this script is reported to the
+   app before it can turn into a silent blank screen. Safe on the web — the
+   bridge simply isn't there. */
+window.onerror = function(msg, src, line){
+  try{
+    if (window.LedgiiSetupBridge && window.LedgiiSetupBridge.jsError)
+      window.LedgiiSetupBridge.jsError(String(msg), String(line || 0));
+  }catch(_){}
+};
+window.LedgiiSetup = (function(){
+const DAY = 86400000;
+const DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+function sod(d) { const x = new Date(d); x.setHours(0,0,0,0); return x; }
+/* Calendar-day step, not 24h: on the DST fall-back day a 24h step lands back on
+   the same date and any day-by-day walk hangs forever. */
+function addDays(d, n) { const x = sod(d); x.setDate(x.getDate() + n); return sod(x); }
+function nextWd(from, wd) { const d = sod(from); d.setDate(d.getDate() + ((wd - d.getDay() + 7) % 7)); return d; }
+function monBefore(d) { const x = sod(d); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; }
+function clampDay(y, mo, day) { return Math.min(day, new Date(y, mo + 1, 0).getDate()); }
+/* The day a bill started existing, "YYYY-MM-DD". Absent means "no history to
+   speak of", which for a wizard-built ledger is always today. */
+function billSinceDate(b, today) {
+  const k = b && b.since;
+  if (!k) return sod(today || new Date());
+  const p = String(k).split("-");
+  return sod(new Date(+p[0], +p[1] - 1, p.length > 2 ? +p[2] : 1));
+}
+const fmtR = (a, b) => a.toLocaleDateString("en-US",{month:"short",day:"numeric"}) + " – " + b.toLocaleDateString("en-US",{day:"numeric"});
+const money = (n) => { const c = Math.round((Number(n)||0)*100); const p = c%100===0?0:(c%10===0?1:2); return (c/100).toLocaleString("en-US",{style:"currency",currency:"USD",minimumFractionDigits:p,maximumFractionDigits:p}); };
+const money0 = (n) => Number(n||0).toLocaleString("en-US",{style:"currency",currency:"USD",maximumFractionDigits:0});
+function hexToHsl(hex) {
+  let h2 = hex.replace("#", "");
+  if (h2.length === 3) h2 = h2.split("").map((c) => c + c).join("");
+  const r = parseInt(h2.substr(0, 2), 16) / 255;
+  const g = parseInt(h2.substr(2, 2), 16) / 255;
+  const b = parseInt(h2.substr(4, 2), 16) / 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+  let h = 0, s = 0; const l = (mx + mn) / 2; const d = mx - mn;
+  if (d !== 0) {
+    s = d / (1 - Math.abs(2 * l - 1));
+    if (mx === r) h = ((g - b) / d) % 6;
+    else if (mx === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60; if (h < 0) h += 360;
+  }
+  return { h, s: s * 100, l: l * 100 };
+}
+function hslToHex(h, s, l) {
+  s = Math.max(0, Math.min(100, s)) / 100;
+  l = Math.max(0, Math.min(100, l)) / 100;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  let r, g, b;
+  if (h < 60) [r, g, b] = [c, x, 0];
+  else if (h < 120) [r, g, b] = [x, c, 0];
+  else if (h < 180) [r, g, b] = [0, c, x];
+  else if (h < 240) [r, g, b] = [0, x, c];
+  else if (h < 300) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  const hex = (v) => Math.round((v + m) * 255).toString(16).padStart(2, "0");
+  return "#" + hex(r) + hex(g) + hex(b);
+}
+function buildScheme(seed, dark) {
+  if (seed.toLowerCase() === "#833761") return dark ? {"good": "#7fdf97", "goodC": "#0f3d20", "warn": "#ffd25f", "warnC": "#3f2e00", "danger": "#ffb4ab", "dangerC": "#5a1410", "primary": "#d5a0b9", "onPrimary": "#38232c", "primaryC": "#49313d", "onPrimaryC": "#f6eddd", "secondaryC": "#30282e", "onSecondaryC": "#eddec1", "surface": "#000000", "surfaceC": "#242124", "surfaceCH": "#302b30", "surfaceCHH": "#3b333a", "onSurface": "#f6eddd", "onSurfaceVar": "#c8bbc1", "outline": "transparent", "outlineVar": "transparent", "expBg": "#30282e", "expFg": "#f6eddd", "expVar": "#d5a0b9", "expHead": "#d5a0b9", "bar2": "#d5a0b9"} : {"good": "#1c6b34", "goodC": "#bdf0c4", "warn": "#7a5400", "warnC": "#ffdf9e", "danger": "#b3261e", "dangerC": "#ffdad5", "primary": "#833761", "onPrimary": "#fff3fc", "primaryC": "#eed6df", "onPrimaryC": "#54233f", "secondaryC": "#e8dbef", "onSecondaryC": "#513568", "surface": "#fcf4ee", "surfaceC": "#fff6f7", "surfaceCH": "#eed6df", "surfaceCHH": "#e8dbef", "onSurface": "#422334", "onSurfaceVar": "#735165", "outline": "transparent", "outlineVar": "transparent", "expBg": "#e9ddf7", "expFg": "#4b2f63", "expVar": "#64457e", "expHead": "#64457e", "bar2": "#704c91"};
+  const { h, s } = hexToHsl(seed);
+  const a = Math.max(s, 45);
+  const t = (sat, L) => hslToHex(h, sat, L);
+  if (!dark) return {
+    dark: false,
+    primary: t(a, 42), onPrimary: "#fff",
+    primaryC: t(Math.min(a, 68), 90), onPrimaryC: t(a, 16),
+    secondaryC: t(22, 88), onSecondaryC: t(26, 20),
+    surface: t(14, 98), surfaceC: t(14, 95), surfaceCH: t(14, 93), surfaceCHH: t(14, 90),
+    onSurface: t(10, 12), onSurfaceVar: t(12, 36),
+    outline: t(10, 54), outlineVar: t(10, 84),
+    good: "#1c6b34", goodC: "#bdf0c4", warn: "#7a5400", warnC: "#ffdf9e",
+    danger: "#b3261e", dangerC: "#ffdad5",
+  };
+  return {
+    dark: true,
+    primary: t(Math.min(a, 70), 80), onPrimary: t(a, 18),
+    primaryC: t(Math.min(a, 58), 32), onPrimaryC: t(60, 90),
+    secondaryC: t(16, 30), onSecondaryC: t(18, 88),
+    surface: t(12, 7), surfaceC: t(12, 12), surfaceCH: t(12, 17), surfaceCHH: t(12, 22),
+    onSurface: t(8, 91), onSurfaceVar: t(10, 80),
+    outline: t(8, 60), outlineVar: t(8, 32),
+    good: "#7fdf97", goodC: "#0f3d20", warn: "#ffd25f", warnC: "#3f2e00",
+    danger: "#ffb4ab", dangerC: "#5a1410",
+  };
+}
+function monthKey(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); }
+function countWeekday(year, month, wd) { let n = 0; const last = new Date(year, month + 1, 0).getDate(); for (let day = 1; day <= last; day++) if (new Date(year, month, day).getDay() === wd) n++; return n; }
+function billMonthDue(b, monthDate) {
+  if (b.freq === "weekly") return (+b.amount) * countWeekday(monthDate.getFullYear(), monthDate.getMonth(), b.weekday != null ? b.weekday : 1);
+  return +b.amount;
+}
+function billPaidFor(b, key) { return (b.payments && +b.payments[key]) || 0; }
+function billDoneFor(b, key) { return !!(b.done && b.done[key]); }
+function dayKey(d) { const x = sod(d); return x.getFullYear() + "-" + String(x.getMonth()+1).padStart(2,"0") + "-" + String(x.getDate()).padStart(2,"0"); }
+function billWeekAmt(b, key) { const o = b.weekAmt ? b.weekAmt[key] : undefined; const n = (o != null) ? parseFloat(o) : NaN; return !isNaN(n) ? n : (+b.amount); }
+function cushionState(bal, c) {
+  if (bal >= c.ok) return { key: "good", label: "Comfortable" };
+  if (bal >= c.tight) return { key: "warn", label: "Tight" };
+  if (bal >= c.close) return { key: "warn", label: "Watch it" };
+  if (bal >= c.red) return { key: "danger", label: "Red zone" };
+  return { key: "danger", label: "Emergency" };
+}
+function buildProjection(state, weeks) {
+  const today = sod(new Date());
+  const end = addDays(today, weeks * 7);
+  const evs = [];
+  /* Expected money lands in the current week, tagged so the UI shows it as expected, not settled. */
+  (state.expected || []).forEach((e) => {
+    if (!(e.amount > 0)) return;
+    /* Land it on the day the user expects it; anything already due sits on today so it still shows. */
+    const ed = sod(new Date(e.dateMillis || Date.now()));
+    const d = ed < today ? today : ed;
+    if (d <= end) evs.push({ date: new Date(d), amount: e.amount, label: e.label, kind: "expected" });
+  });
+  state.weekly.forEach(s => {
+    let d = nextWd(today, s.weekday);
+    while (d <= end) { evs.push({ date: new Date(d), amount: -Math.abs(s.amount), label: s.name, kind: "weekly" }); d = addDays(d, 7); }
+  });
+  state.bills.forEach(b => {
+    if (b.freq === "weekly") {
+      let d = nextWd(today, b.weekday != null ? b.weekday : 1);
+      while (d <= end) {
+        const key = dayKey(d);
+        const amt = billWeekAmt(b, key);
+        if (!billDoneFor(b, key) && amt > 0) evs.push({ date: new Date(d), amount: -Math.abs(amt), label: b.name, kind: "bill", late: false });
+        d = addDays(d, 7);
+      }
+      return;
+    }
+    const months = Math.ceil(weeks / 4) + 2;
+    /* Nothing that fell due before the bill existed is late. Every bill on this
+       screen was typed in a minute ago, so without this a person setting up on
+       the 20th watches the wizard take rent, power and the car payment out of
+       the week they are still filling in - a preview of a debt they do not have.
+       The app applies the same floor; it only also walks backwards, which a
+       ledger this new has nowhere to walk to. */
+    const since = billSinceDate(b, today);
+    for (let m = 0; m <= months; m++) {
+      const y = today.getFullYear(); const mo = today.getMonth() + m;
+      const occ = sod(new Date(y, mo, clampDay(y, mo, b.dueDay)));
+      if (occ < since) continue;
+      const key = monthKey(occ);
+      const paid = billPaidFor(b, key);
+      const done = billDoneFor(b, key) || (!b.variable && paid >= (+b.amount));
+      let amt, date, late = false;
+      if (m === 0) { amt = done ? 0 : Math.max(0, (+b.amount) - paid); if (occ < today) { date = today; late = amt > 0; } else date = occ; }
+      else { amt = done ? 0 : Math.max(0, (+b.amount) - paid); date = occ; }
+      if (amt > 0 && date >= today && date <= end)
+        evs.push({ date: new Date(date), amount: -amt, label: b.name, kind: "bill", late });
+    }
+  });
+  /* future (pending) transactions count on their own date */
+  (state.transactions || []).forEach(t => {
+    if (t.pending) { const d = sod(new Date(t.date)); if (d > today && d <= end) evs.push({ date: d, amount: t.amount, label: t.label, kind: t.amount >= 0 ? "income" : "expense", txn: true }); }
+  });
+  /* income first within same day, then bills/spending */
+  evs.sort((a, b) => (a.date - b.date) || (b.amount - a.amount));
+  const base = monBefore(today);
+  /* Bucket by CALENDAR days, not elapsed milliseconds: a week spanning the
+     spring-forward day is 7 days minus an hour, and the old division floored
+     into the previous week, throwing that week's income and bills into the
+     wrong row. dayNum() counts dates, so DST cannot shift it. */
+  const fi = Math.floor((dayNum(today) - dayNum(base)) / 7);
+  const nextList = (state.incomeNext && state.incomeNext.length) ? state.incomeNext : state.income;
+  const result = [];
+  let running = +state.checking;
+  for (let i = fi; i < fi + weeks; i++) {
+    const start = addDays(base, i * 7); const stop = addDays(start, 6);
+    let we = evs.filter(e => Math.floor((dayNum(e.date) - dayNum(base)) / 7) === i);
+    const rel = i - fi; /* 0 = current week, 1 = next week, >=2 = future */
+    if (rel === 0) we = we.filter(e => e.kind !== "weekly"); /* weekly spending reported manually for the current week, like income */
+    if (rel === 0) {
+      /* Current week: project income for the days still AHEAD (after today) from the average
+         week. Past days aren't projected (already reflected in the balance / logged), and today
+         is left out so an already-received, logged paycheck can't be double-counted. */
+      state.income.forEach(s => {
+        incomeDatesInWeek(s, start, stop).forEach(d => {
+          if (sod(d) <= today) return;
+          const nm = (s.name || "").trim().toLowerCase();
+          const replaced = nm && we.some(e => e.txn && (e.label || "").trim().toLowerCase() === nm && sod(e.date).getTime() === sod(d).getTime());
+          { const ovKey = dayKey(d) + "|" + s.name;
+            const wasEdited = Object.prototype.hasOwnProperty.call(state.incomeOverrides || {}, ovKey);
+            const ovRawV = (state.incomeOverrides||{})[ovKey]; const ovAmt = (ovRawV != null ? ovRawV : +s.amount);
+            /* A removed income stays on the week at $0 (struck through) so the
+               change is visible; it adds nothing to the running balance. */
+            if (!replaced && ovAmt > 0) we.push({ date: d, amount: ovAmt, label: s.name, kind: "income", edited: wasEdited });
+            else if (!replaced && wasEdited) we.push({ date: d, amount: 0, label: s.name, kind: "income", edited: true }); }
+        });
+      });
+    }
+    if (rel >= 1) {
+      const list = (rel === 1) ? nextList : state.income;
+      list.forEach(s => {
+        incomeDatesInWeek(s, start, stop).forEach(d => {
+          const nm = (s.name || "").trim().toLowerCase();
+          /* if an actual (pending) transaction with this category name already lands on this day, it replaces the projected income (no double count) */
+          const replaced = nm && we.some(e => e.txn && (e.label || "").trim().toLowerCase() === nm && sod(e.date).getTime() === sod(d).getTime());
+          { const ovKey = dayKey(d) + "|" + s.name;
+            const wasEdited = Object.prototype.hasOwnProperty.call(state.incomeOverrides || {}, ovKey);
+            const ovRawV = (state.incomeOverrides||{})[ovKey]; const ovAmt = (ovRawV != null ? ovRawV : +s.amount);
+            /* A removed income stays on the week at $0 (struck through) so the
+               change is visible; it adds nothing to the running balance. */
+            if (!replaced && ovAmt > 0) we.push({ date: d, amount: ovAmt, label: s.name, kind: "income", edited: wasEdited });
+            else if (!replaced && wasEdited) we.push({ date: d, amount: 0, label: s.name, kind: "income", edited: true }); }
+        });
+      });
+    }
+    we = we.sort((a, b) => (a.date - b.date) || (b.amount - a.amount));
+    const startBal = running; let mn = running;
+    we.forEach(e => { running += e.amount; mn = Math.min(mn, running); });
+    result.push({ idx: i, start, end: stop, startBal, endBal: running, min: mn, events: we, first: i === fi });
+  }
+  return result;
+}
+function incomeDatesInWeek(s, start, end) {
+  if (s.freq === "biweekly") {
+    const a = parseDayKey(s.anchor);
+    if (!a) return [];
+    const out = [];
+    for (let d = sod(start); d <= end; d = addDays(d, 1)) {
+      const diff = dayNum(d) - dayNum(a);
+      if (((diff % 14) + 14) % 14 === 0) out.push(new Date(d));
+    }
+    return out;
+  }
+  return [addDays(start, ((s.weekday != null ? s.weekday : 1) + 6) % 7)];
+}
+function parseDayKey(k) { if (!k) return null; const p = String(k).split("-"); if (p.length !== 3) return null; const d = new Date(+p[0], +p[1] - 1, +p[2]); return isNaN(d.getTime()) ? null : sod(d); }
+function nextBiweeklyOnOrAfter(anchorKey, from) {
+  const a = parseDayKey(anchorKey);
+  if (!a) return null;
+  const mod = (((dayNum(from) - dayNum(a)) % 14) + 14) % 14;
+  return mod === 0 ? sod(from) : addDays(from, 14 - mod);
+}
+function dayNum(d) { const x = sod(d); return Math.floor(Date.UTC(x.getFullYear(), x.getMonth(), x.getDate()) / DAY); }
+
+const uid = () => Math.random().toString(36).slice(2, 10);
+const state = { checking: 0, bills: [], income: [], incomeNext: [], weekly: [], transactions: [],
+  goal: { name: "Savings goal", target: 1000, saved: 0 },
+  cushion: { ok: 300, tight: 150, close: 100, red: 50 },
+  incomeOverrides: {}, expected: [] };
+let horizon = 20;   /* demo default: show the full stretch */
+
+const dark = window.matchMedia && window.matchMedia("(prefers-color-scheme:dark)").matches;
+const sc = buildScheme("#833761", dark);
+const toneColor = k => k==="good" ? sc.good : k==="danger" ? sc.danger : sc.warn;
+const phone = document.getElementById("phone");
+phone.style.background = sc.surface;
+phone.style.color = sc.onSurface;
+phone.classList.add("lg-setup-host");
+
+const LABELS=["INCOME","BILLS","BALANCE","YOUR PLAN"];
+const track = at => '<div class="track">' + LABELS.map((l,i)=>{
+  const cls = i<at?"done":i===at?"now":"";
+  return '<div class="tstep '+cls+'"><div class="tbar" style="background:'+sc.surfaceCHH+'"><i style="background:'+sc.primary+'"></i></div><span style="color:'+((i<=at)?sc.primary:sc.onSurfaceVar)+'">'+l+'</span></div>';
+}).join("") + '</div>';
+
+const inputStyle = 'background:'+sc.surfaceCHH+'; color:'+sc.onSurface+'; border-color:'+(sc.outlineVar === 'transparent' ? (dark ? '#9A858F' : '#A88098') : sc.outlineVar);
+const DAYSFULL = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const daySel = (id,def) => '<select id="'+id+'" style="'+inputStyle+'">'+DAYSFULL.map((d,i)=>'<option value="'+i+'"'+(i===def?' selected':'')+'>'+d+'</option>').join("")+'</select>';
+
+/* ── pages ── */
+phone.innerHTML = `
+<section class="page on" id="pg0">
+  <div class="grow" style="display:flex; align-items:center"><div style="width:100%">
+    <h1>Sharing finances with your special person?</h1>
+    <p class="sub" style="color:${sc.onSurfaceVar}">If they already use Ledgii, put their code in below and you'll both see the same balance, bills and plan. No code? Set up your own ledger and you can invite them any time from Setup.</p>
+    <div class="lbl" style="color:${sc.onSurfaceVar}">Partner's code</div>
+    <input id="code" autocapitalize="characters" spellcheck="false" style="${inputStyle}; font:800 20px system-ui,sans-serif; letter-spacing:3px">
+    <button class="primary" id="join" style="width:100%; margin-top:22px; background:${sc.surfaceCHH}; color:${sc.onSurfaceVar}">Join their ledger</button>
+    <button class="ghost" style="width:100%; margin-top:12px; border:1.5px solid ${sc.outlineVar}; color:${sc.onSurface}" onclick="LedgiiSetup.go(1)">Set up my own ledger</button>
+  </div></div>
+</section>
+
+<section class="page" id="pg1">
+  ${track(0)}
+  <h1>Your income</h1>
+  <p class="sub" style="color:${sc.onSurfaceVar}">Who pays you, how much, and the day it lands. We're building your plan from this as you go — you'll see it in a moment.</p>
+  <div class="grow" style="margin-top:6px">
+    <div id="incRows"></div>
+    <button class="addbtn" style="background:${sc.secondaryC}; color:${sc.onSecondaryC}" onclick="LedgiiSetup.incAdd()">+ Add another source</button>
+  </div>
+  <div class="btnrow"><button class="primary" style="background:${sc.primary}; color:${sc.onPrimary}" onclick="LedgiiSetup.go(2)">Continue</button></div>
+</section>
+
+<section class="page" id="pg2">
+  ${track(1)}
+  <h1>Your bills</h1>
+  <p class="sub" style="color:${sc.onSurfaceVar}">Every bill and the day it's due. The more accurate this is, the sharper your plan gets.</p>
+  <div class="grow" style="margin-top:6px">
+    <div id="billRows"></div>
+    <button class="addbtn" style="background:${sc.secondaryC}; color:${sc.onSecondaryC}" onclick="LedgiiSetup.billAdd()">+ Add another bill</button>
+  </div>
+  <div class="btnrow">
+    <button class="ghost" style="border:1.5px solid ${sc.outlineVar}; color:${sc.onSurface}" onclick="LedgiiSetup.go(1,true)">Back</button>
+    <button class="primary" style="background:${sc.primary}; color:${sc.onPrimary}" onclick="LedgiiSetup.go(3)">Continue</button>
+  </div>
+</section>
+
+<section class="page" id="pg3">
+  ${track(2)}
+  <h1>Your balance</h1>
+  <p class="sub" style="color:${sc.onSurfaceVar}">Type what your bank shows right now. You don't need to track every transaction — when the number drifts, just adjust it and Ledgii re-plans.</p>
+  <div class="grow" style="margin-top:6px">
+    <div class="lbl" style="color:${sc.onSurfaceVar}">Checking balance</div>
+    <input id="bal" placeholder="$0.00" inputmode="decimal" style="${inputStyle}; font:800 24px system-ui,sans-serif">
+  </div>
+  <div class="btnrow">
+    <button class="ghost" style="border:1.5px solid ${sc.outlineVar}; color:${sc.onSurface}" onclick="LedgiiSetup.go(2,true)">Back</button>
+    <button class="primary" style="background:${sc.primary}; color:${sc.onPrimary}" onclick="LedgiiSetup.go(4)">Continue</button>
+  </div>
+</section>
+
+<section class="page" id="pg4">
+  ${track(3)}
+  <h1>Your Plan</h1>
+  <p class="sub" style="color:${sc.onSurfaceVar}">Built from what you just entered — this is your actual Plan tab, exactly what you'll open every day.</p>
+  <div class="grow" id="planHost" style="margin-top:10px"></div>
+  <div class="btnrow">
+    <button class="ghost" style="border:1.5px solid ${sc.outlineVar}; color:${sc.onSurface}" onclick="LedgiiSetup.go(3,true)">Back</button>
+    <button class="primary" style="background:${sc.primary}; color:${sc.onPrimary}" onclick="LedgiiSetup.finish()">Open Ledgii</button>
+  </div>
+</section>
+
+<section class="page" id="pg5">
+  <div class="grow" style="margin-top:2px">
+    <div style="text-align:center; padding:6px 0 2px">
+      <div style="display:inline-block; background:${sc.primaryC}; color:${sc.onPrimaryC}; border-radius:999px; padding:7px 15px; font:800 12px system-ui,sans-serif; letter-spacing:.4px">10 DAYS FREE &middot; CANCEL ANYTIME</div>
+      <h1 style="margin-top:12px">Try Ledgii risk free.<br>Keep it only if it fits in your life.</h1>
+    </div>
+    <div id="timeline" style="margin-top:18px"></div>
+    
+    <div style="margin-top:16px">
+      <div class="plan" data-i="0" onclick="LedgiiSetup.pick(0)" style="border-color:${sc.outlineVar}">
+        <div><div style="font-size:15px; font-weight:800">Monthly</div><div style="font-size:12px; font-weight:600; color:${sc.onSurfaceVar}">Month to month</div></div>
+        <div style="margin-left:auto; text-align:right; font-size:16px; font-weight:800">$4.99<div style="font-size:11px; font-weight:700; color:${sc.onSurfaceVar}">/ month</div></div>
+      </div>
+      <div class="plan" data-i="1" onclick="LedgiiSetup.pick(1)" style="border-color:${sc.primary}; box-shadow:0 0 0 1.5px ${sc.primary} inset; background:${sc.surfaceC}">
+        <div class="badge" style="background:${sc.primary}; color:${sc.onPrimary}">MOST POPULAR</div>
+        <div><div style="font-size:15px; font-weight:800">Yearly</div><div style="font-size:12px; font-weight:600; color:${sc.onSurfaceVar}">$2.50 / month, billed once</div></div>
+        <div style="margin-left:auto; text-align:right">
+          <div style="font-size:16px; font-weight:800">$29.99<span style="font-size:11px; font-weight:700; color:${sc.onSurfaceVar}"> / year</span></div>
+          <div style="display:inline-block; background:${sc.goodC}; color:${sc.good}; border-radius:999px; padding:2px 8px; font-size:10.5px; font-weight:800; margin-top:3px">SAVE 50%</div>
+        </div>
+      </div>
+      <div class="plan" data-i="2" onclick="LedgiiSetup.pick(2)" style="border-color:${sc.outlineVar}">
+        <div class="badge" style="background:${sc.warnC}; color:${sc.warn}">LAUNCH ONLY &middot; LIMITED TIME</div>
+        <div><div style="font-size:15px; font-weight:800">Lifetime</div><div style="font-size:12px; font-weight:600; color:${sc.onSurfaceVar}">Founder's deal &mdash; pay once, never again</div></div>
+        <div style="margin-left:auto; text-align:right; font-size:16px; font-weight:800">$39.99<div style="font-size:11px; font-weight:700; color:${sc.onSurfaceVar}">once</div></div>
+      </div>
+    </div>
+
+    <p style="font-size:11.5px; font-weight:600; line-height:1.5; color:${sc.onSurfaceVar}; text-align:center; margin:2px 0 14px">
+      Full refund within 7 days of any charge &middot; cancel in two taps and keep everything you entered.
+    </p>
+    <div style="background:${sc.surfaceC}; border-radius:20px; padding:14px 16px; margin-top:6px">
+      <div style="font:800 12px system-ui,sans-serif; letter-spacing:.4px; color:${sc.onSurfaceVar}; margin-bottom:8px">EVERYTHING INCLUDED</div>
+      <div class="feat" style="color:${sc.onSurfaceVar}; margin:0">
+        &#10003;&nbsp; Week-by-week plan and tracking<br>
+        &#10003;&nbsp; Expected income. It asks before it assumes<br>
+        &#10003;&nbsp; Share with your partner. One subscription covers both of you<br>
+        &#10003;&nbsp; No need for bank access by design. We don't want your account numbers and don't sell your data like other apps<br>
+        &#10003;&nbsp; Export your data anytime. You're in control of it
+      </div>
+    </div>
+  </div>
+  <button class="primary" id="cta" style="flex:0 0 auto; width:100%; background:${sc.primary}; color:${sc.onPrimary}; padding:19px">Start my free 10 days</button>
+  <p class="soft" style="color:${sc.onSurface}; font-weight:800; font-size:13px; margin-top:14px">You're one step away from changing how you do money forever.</p>
+</section>`;
+
+/* ── wizard state handlers (writing into the app-shaped state) ── */
+/* Income and bills are entered the way Settings lets you edit them: one card per
+   source, filled in place, removed with the X. Nothing is confirmed — what is on
+   screen IS the list, read straight off the cards when you continue. The button
+   adds another card rather than committing the one you just typed. */
+let rowSeq = 0;
+const incAnchors = {};          /* row id -> "YYYY-MM-DD", the bi-weekly payday */
+const billFreqs  = {};          /* row id -> "monthly" | "weekly", per bill */
+
+const trashSvg = (color) =>
+  '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="' + color + '" stroke-width="2" '
+  + 'stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>';
+const cardHead = (label, delCall) =>
+  '<div class="ihead"><span class="iname" style="color:' + sc.onSurfaceVar + '">' + label + '</span>'
+  + '<button class="del" onclick="' + delCall + '" aria-label="Remove">' + trashSvg(sc.onSurfaceVar) + '</button></div>';
+
+/* ── income cards ── */
+function incAdd(){
+  const id = "i" + (++rowSeq);
+  const el = document.createElement("div");
+  el.className = "item"; el.id = id; el.style.background = sc.surfaceC;
+  el.innerHTML =
+      cardHead("INCOME SOURCE", "LedgiiSetup.incDel('" + id + "')")
+    + '<div class="row2"><input id="' + id + '_n" placeholder="Who pays you (e.g. Main Job)" style="' + inputStyle + '"></div>'
+    + '<div class="row2" style="margin-top:8px">'
+    +   '<input id="' + id + '_a" placeholder="$ per paycheck" inputmode="decimal" style="' + inputStyle + '">'
+    +   '<span id="' + id + '_dw" class="narrow">' + daySel(id + "_d", 5) + '</span>'
+    + '</div>'
+    + '<label style="display:flex; align-items:center; gap:8px; margin:12px 2px 0; cursor:pointer">'
+    +   '<input type="checkbox" id="' + id + '_bi" style="width:18px; height:18px; accent-color:' + sc.primary + '" onchange="LedgiiSetup.incBi(\'' + id + '\')">'
+    +   '<span style="font-weight:800; font-size:13.5px; color:' + sc.onSurface + '">Bi-weekly</span>'
+    + '</label>'
+    + '<div id="' + id + '_aw" style="display:none; margin-top:10px">'
+    +   '<div class="lbl" style="color:' + sc.onSurfaceVar + '; margin-top:0">Next paycheck</div>'
+    +   '<div id="' + id + '_as" style="display:flex; gap:8px; overflow-x:auto; padding-bottom:2px"></div>'
+    + '</div>';
+  document.getElementById("incRows").appendChild(el);
+  return id;
+}
+function incDel(id){
+  const el = document.getElementById(id);
+  if (el && el.parentNode) el.parentNode.removeChild(el);
+  delete incAnchors[id];
+  /* never leave the page with nothing to type into */
+  if (!document.getElementById("incRows").childElementCount) incAdd();
+}
+function incBi(id){
+  const on = document.getElementById(id + "_bi").checked;
+  document.getElementById(id + "_dw").style.display = on ? "none" : "";
+  document.getElementById(id + "_aw").style.display = on ? "" : "none";
+  /* Default the payday to today so a ticked box always has a valid date behind
+     it — otherwise a bi-weekly income with no pick would quietly act weekly. */
+  if (on && !incAnchors[id]) incAnchors[id] = dayKey(sod(new Date()));
+  if (on) buildAnchorStrip(id);
+}
+function buildAnchorStrip(id){
+  const host = document.getElementById(id + "_as"), base = sod(new Date());
+  host.innerHTML = "";
+  for (let i = 0; i < 14; i++){
+    const d = addDays(base, i), k = dayKey(d);
+    const b = document.createElement("button");
+    b.textContent = i === 0 ? "Today" : d.toLocaleDateString("en-US", {weekday:"short", day:"numeric"});
+    b.style.cssText = "flex:0 0 auto; padding:10px 14px; border-radius:14px; border:none; cursor:pointer; font:800 13.5px system-ui,sans-serif; white-space:nowrap";
+    const paint = () => { const on = incAnchors[id] === k;
+      b.style.background = on ? sc.primary : sc.surfaceCHH; b.style.color = on ? sc.onPrimary : sc.onSurface; };
+    b.onclick = () => { incAnchors[id] = k; [...host.children].forEach(x => x._p()); };
+    b._p = paint; paint();
+    host.appendChild(b);
+  }
+}
+
+/* ── bill cards ── */
+function billAdd(){
+  const id = "b" + (++rowSeq);
+  billFreqs[id] = "monthly";
+  const el = document.createElement("div");
+  el.className = "item"; el.id = id; el.style.background = sc.surfaceC;
+  el.innerHTML =
+      cardHead("BILL", "LedgiiSetup.billDel('" + id + "')")
+    + '<div class="row2"><input id="' + id + '_n" placeholder="Bill name (e.g. Rent)" style="' + inputStyle + '"></div>'
+    + '<div class="seg" style="background:' + sc.surfaceCHH + '">'
+    +   '<button id="' + id + '_fm" onclick="LedgiiSetup.billFreq(\'' + id + '\',\'monthly\')">Monthly</button>'
+    +   '<button id="' + id + '_fw" onclick="LedgiiSetup.billFreq(\'' + id + '\',\'weekly\')">Weekly</button>'
+    + '</div>'
+    + '<div class="row2" style="margin-top:8px">'
+    +   '<input id="' + id + '_a" placeholder="$ amount" inputmode="decimal" style="' + inputStyle + '">'
+    +   '<span id="' + id + '_ddw" class="narrow"><input id="' + id + '_dd" placeholder="Due day" inputmode="numeric" style="' + inputStyle + '"></span>'
+    +   '<span id="' + id + '_wdw" class="narrow" style="display:none">' + daySel(id + "_wd", 1) + '</span>'
+    + '</div>'
+    + '<label style="display:flex; align-items:center; gap:8px; margin:12px 2px 0; cursor:pointer">'
+    +   '<input type="checkbox" id="' + id + '_v" style="width:18px; height:18px; accent-color:' + sc.primary + '">'
+    +   '<span>'
+    +     '<span style="display:block; font-weight:800; font-size:13.5px; color:' + sc.onSurface + '">Variable amount</span>'
+    +     '<span style="display:block; font-size:12px; font-weight:600; color:' + sc.onSurfaceVar + '">Changes week to week — the amount is your usual estimate.</span>'
+    +   '</span>'
+    + '</label>';
+  document.getElementById("billRows").appendChild(el);
+  billFreq(id, "monthly");    /* the default must look chosen, not blank */
+  return id;
+}
+function billDel(id){
+  const el = document.getElementById(id);
+  if (el && el.parentNode) el.parentNode.removeChild(el);
+  delete billFreqs[id];
+  if (!document.getElementById("billRows").childElementCount) billAdd();
+}
+function billFreq(id, f){
+  billFreqs[id] = f;
+  const m = f === "monthly";
+  document.getElementById(id + "_ddw").style.display = m ? "" : "none";
+  document.getElementById(id + "_wdw").style.display = m ? "none" : "";
+  const bm = document.getElementById(id + "_fm"), bw = document.getElementById(id + "_fw");
+  bm.style.background = m ? sc.primary : "transparent"; bm.style.color = m ? sc.onPrimary : sc.onSurfaceVar;
+  bw.style.background = m ? "transparent" : sc.primary; bw.style.color = m ? sc.onSurfaceVar : sc.onPrimary;
+}
+
+/* ── read the cards ──
+   Blank and half-filled cards are skipped, so a spare card left on screen can
+   never become a $0 income or a nameless bill. */
+function collectIncome(){
+  const out = [];
+  [...document.getElementById("incRows").children].forEach(el => {
+    const id = el.id;
+    const name = (document.getElementById(id + "_n").value || "").trim();
+    const amt = parseFloat((document.getElementById(id + "_a").value || "").replace(/[^0-9.]/g, ""));
+    if (!name || !(amt > 0)) return;
+    const bi = document.getElementById(id + "_bi").checked, anchor = incAnchors[id];
+    out.push(bi && anchor
+      ? { id: id, name: name, amount: amt, weekday: parseDayKey(anchor).getDay(), freq: "biweekly", anchor: anchor }
+      : { id: id, name: name, amount: amt, weekday: +document.getElementById(id + "_d").value, freq: "weekly", anchor: "" });
+  });
+  state.income = out;
+}
+function collectBills(){
+  const out = [];
+  [...document.getElementById("billRows").children].forEach(el => {
+    const id = el.id;
+    const name = (document.getElementById(id + "_n").value || "").trim();
+    const amt = parseFloat((document.getElementById(id + "_a").value || "").replace(/[^0-9.]/g, ""));
+    if (!name || !(amt > 0)) return;
+    const f = billFreqs[id] || "monthly";
+    const day = Math.max(1, Math.min(31, parseInt(document.getElementById(id + "_dd").value) || 1));
+    out.push({ id: id, name: name, amount: amt, dueDay: day, freq: f,
+               weekday: +document.getElementById(id + "_wd").value,
+               variable: document.getElementById(id + "_v").checked,
+               payments: {}, done: {}, weekAmt: {},
+               /* Stamped at birth so the app never blames this bill for a day
+                  before the ledger existed. */
+               since: dayKey(sod(new Date())) });
+  });
+  state.bills = out;
+}
+
+/* ── the Plan tab, rendered with the app's real structure and real numbers ── */
+/* Kept in step with the app's Plan tab by hand. What differs there and cannot
+   happen here is deliberately absent: expected money, edited or removed
+   incomes, late bills and the Edit incomes button all need data or an editor
+   this wizard does not have yet. Everything a fresh ledger CAN show is the
+   same — day groups, the running balance line, the cue and the animation. */
+const openWeeks = {};
+function toggleWeek(i){
+  openWeeks[i] = !openWeeks[i];
+  const card = document.getElementById("suwk" + i);
+  if (!card) return;
+  card.setAttribute("aria-expanded", openWeeks[i] ? "true" : "false");
+  const cue = document.getElementById("suwkcue" + i);
+  /* Only the trailing text node is replaced — setting textContent would
+     delete the caret span along with it. */
+  if (cue && cue.lastChild) cue.lastChild.nodeValue = openWeeks[i] ? "Collapse" : cue.getAttribute("data-open-label");
+}
+function renderPlan(){
+  state.checking = parseFloat((document.getElementById("bal").value||"").replace(/[^0-9.-]/g,"")) || 0;
+  const proj = buildProjection(state, horizon);
+  const lowest = proj.reduce((m,w)=> w.min<m.min ? {min:w.min, week:w} : m, {min:Infinity, week:null});
+  const hot = lowest.min < state.cushion.tight;
+  let h = '<div style="background:'+(hot?sc.dangerC:sc.primaryC)+'; color:'+(hot?sc.danger:sc.onPrimaryC)+'; border-radius:26px; padding:18px; margin-bottom:14px">'
+    + '<div style="font-weight:800; font-size:14px">Lowest point in the next '+horizon+' weeks</div>'
+    + '<div style="font-size:38px; font-weight:800; letter-spacing:-1px; margin-top:4px">'+money(lowest.min===Infinity?state.checking:lowest.min)+'</div>'
+    + (lowest.week ? '<div style="font-size:13.5px; font-weight:700; opacity:.9">around '+lowest.week.start.toLocaleDateString("en-US",{month:"short",day:"numeric"})+'</div>' : '')
+    + '</div>';
+  h += '<div style="display:flex; gap:8px; margin-bottom:16px">'+[6,8,12,16,20].map(w=>
+    '<button onclick="LedgiiSetup.setHorizon('+w+')" style="flex:1; padding:10px 0; border-radius:999px; border:none; cursor:pointer; font-weight:800; font-size:14px; background:'+(horizon===w?sc.primary:sc.surfaceCH)+'; color:'+(horizon===w?sc.onPrimary:sc.onSurfaceVar)+'">'+w+'w</button>').join("")+'</div>';
+  h += '<div style="display:flex; flex-direction:column; gap:12px">' + proj.map(w => {
+    const cs2 = cushionState(w.min, state.cushion);
+    const has = w.events.length > 0;
+    const open = !!openWeeks[w.idx];
+    const openLabel = "Expand to see " + w.events.length + (w.events.length===1 ? " move" : " moves");
+    let card = '<div class="su-wk' + (has ? " su-wk-tap" : "") + '" id="suwk'+w.idx+'"'
+      + (has ? ' role="button" tabindex="0" aria-expanded="'+(open?"true":"false")+'" onclick="LedgiiSetup.toggleWeek('+w.idx+')"' : '')
+      + ' style="background:'+sc.surfaceC+'; border-radius:24px; padding:16px; border-left:5px solid '+toneColor(cs2.key)+'">'
+      + '<div style="display:flex; align-items:center; justify-content:space-between"><div>'
+      + '<div style="font-weight:800; font-size:16px">'+(w.first?"This week":fmtR(w.start,w.end))+'</div>'
+      + '<div style="font-size:12.5px; color:'+sc.onSurfaceVar+'; font-weight:600">'+(w.first?fmtR(w.start,w.end):"Week of "+w.start.toLocaleDateString("en-US",{month:"short",day:"numeric"}))+'</div>'
+      + '</div><div style="text-align:right">'
+      + '<div style="font-weight:800; font-size:19px">'+money0(w.endBal)+'</div>'
+      + '<div style="font-size:12px; font-weight:700; color:'+toneColor(cs2.key)+'">low '+money0(w.min)+'</div>'
+      + '</div></div>';
+    if (has){
+      /* Day groups: a bold uppercase weekday header with its date, the moves
+         under it, then one closing balance line carrying the running total. */
+      const groups = [];
+      [...w.events].sort((a,b)=>a.date-b.date).forEach(e => {
+        const k = dayKey(e.date);
+        if (!groups.length || groups[groups.length-1].k !== k) groups.push({ k: k, date: e.date, rows: [] });
+        groups[groups.length-1].rows.push(e);
+      });
+      let running = w.startBal;
+      const body = groups.map((g, gi) => {
+        g.rows.forEach(e => { running = Math.round((running + e.amount) * 100) / 100; });
+        const dayEnd = running;
+        return '<div style="margin-top:'+(gi?10:0)+'px">'
+          + '<div style="display:flex; align-items:center; gap:8px; margin-bottom:4px">'
+          +   '<span style="font-size:11px; font-weight:800; letter-spacing:.8px; color:'+sc.primary+'; text-transform:uppercase">'
+          +     g.date.toLocaleDateString("en-US",{weekday:"long"}) + " \u00B7 " + (g.date.getMonth()+1) + "/" + g.date.getDate()
+          +   '</span>'
+          +   '<span style="flex:1; height:1px; background:'+sc.surfaceCHH+'"></span>'
+          + '</div>'
+          + g.rows.map(e =>
+              '<div style="display:flex; align-items:center; justify-content:space-between; font-size:13.5px; padding:2px 0 2px 8px">'
+              + '<span style="color:'+sc.onSurfaceVar+'; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-flex; align-items:center; gap:6px">'+e.label
+              /* A bill whose due day has already gone by is pulled onto today and
+                 flagged, exactly as the app does it. */
+              + (e.late ? '<span style="background:'+sc.dangerC+'; color:'+sc.danger+'; font-size:9.5px; font-weight:800; padding:1px 6px; border-radius:999px; flex-shrink:0">late</span>' : '')
+              + '</span>'
+              + '<span style="font-weight:700; color:'+(e.amount>=0?sc.good:sc.onSurfaceVar)+'">'+(e.amount>=0?"+":"\u2212")+money(Math.abs(e.amount))+'</span>'
+              + '</div>').join("")
+          + '<div style="display:flex; align-items:center; justify-content:space-between; font-size:12.5px; padding:3px 0 0 8px">'
+          +   '<span style="color:'+sc.onSurfaceVar+'; font-weight:700; opacity:.7">balance</span>'
+          +   '<span style="font-weight:800; font-size:13.5px; color:'+(dayEnd<0?sc.danger:sc.onSurface)+'">'+money0(dayEnd)+'</span>'
+          + '</div></div>';
+      }).join("");
+      card += '<div class="su-wk-cue" id="suwkcue'+w.idx+'" data-open-label="'+openLabel+'" style="margin-top:10px; color:'+sc.primary+'; font-weight:700; font-size:13.5px">'
+        + '<span class="su-wk-caret">&#9662;</span>' + (open ? "Collapse" : openLabel) + '</div>'
+        + '<div class="su-wk-body"><div class="su-wk-bodyinner"><div style="margin-top:10px; display:flex; flex-direction:column; gap:6px">'
+        + body + '</div></div></div>';
+    }
+    return card + '</div>';
+  }).join("") + '</div>';
+  document.getElementById("planHost").innerHTML = h;
+}
+
+/* ── navigation ── */
+let cur=0;
+function go(n, back){
+  if (n===cur) return;
+  /* Read the cards before leaving: nothing was ever "added", so the state has to
+     be taken from what is on screen right now. */
+  collectIncome(); collectBills();
+  if (typeof back === "undefined") back = n < cur;   /* jumping backwards slides backwards */
+  if (n===4) renderPlan();                        /* the reveal is computed on arrival */
+  const from=document.getElementById("pg"+cur), to=document.getElementById("pg"+n);
+  from.classList.remove("on"); from.classList.toggle("off-l", !back);
+  to.classList.remove("off-l");
+  setTimeout(()=>to.classList.add("on"), 40);
+  cur=n;
+}
+let chosenPlan = 1;   /* yearly is preselected */
+function pick(i){
+  chosenPlan = i;
+  document.querySelectorAll(".plan").forEach((p,n)=>{
+    const on = n===i;
+    p.style.borderColor = on ? sc.primary : sc.outlineVar;
+    p.style.boxShadow = on ? "0 0 0 1.5px "+sc.primary+" inset" : "none";
+    if (on) { p.classList.remove("pop"); void p.offsetWidth; p.classList.add("pop"); }
+    else p.classList.remove("pop");
+  });
+  document.getElementById("cta").textContent = i===2 ? "Get lifetime access" : "Start my free 10 days";
+}
+/* The reminder promise, drawn as the app's own three-step timeline. Day 8 is the
+   point that makes it risk-free, so it gets named explicitly with its date. */
+const TRIAL_DAYS = 10, TRIAL_WARN_DAY = 8;
+(function buildTimeline(){
+  const fmt = n => addDays(sod(new Date()), n).toLocaleDateString("en-US",{month:"long",day:"numeric"});
+  const OKC = sc.good, OK_ON = sc.dark ? "#0f3d20" : "#ffffff";
+  const check = c => '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="'+c+'" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 L10 17.5 L19 7"/></svg>';
+  const bell  = c => '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="'+c+'" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 19a2 2 0 0 0 4 0"/></svg>';
+  const steps = [
+    { bg: sc.primary, ic: check(sc.onPrimary), t: "Today", h: "Full access to everything", b: "" },
+    { bg: sc.primary, ic: bell(sc.onPrimary),  t: "Day " + TRIAL_WARN_DAY + " \u00b7 " + fmt(TRIAL_WARN_DAY),
+      h: "We remind you the trial is ending", b: "Two days before anything is charged. If it isn't for you, we'll help you cancel." },
+    { bg: OKC, ic: check(OK_ON), t: "Day " + TRIAL_DAYS + " \u00b7 " + fmt(TRIAL_DAYS),
+      h: "Your subscription starts", b: "Only if you decided to stay." }
+  ];
+  document.getElementById("timeline").innerHTML = steps.map((s2,i) =>
+    '<div style="display:flex; gap:12px; align-items:flex-start">'
+    + '<div style="display:flex; flex-direction:column; align-items:center; flex:0 0 auto">'
+    +   '<div style="width:32px; height:32px; border-radius:999px; background:'+s2.bg+'; display:flex; align-items:center; justify-content:center">'+s2.ic+'</div>'
+    +   (i<steps.length-1 ? '<div style="width:2.5px; height:'+(s2.b?46:30)+'px; background:'+sc.outlineVar+'; border-radius:99px"></div>' : '')
+    + '</div>'
+    + '<div style="padding-bottom:'+(i<steps.length-1?10:0)+'px">'
+    +   '<div style="font:800 11.5px system-ui,sans-serif; letter-spacing:.3px; color:'+(s2.bg===OKC?OKC:sc.primary)+'">'+s2.t.toUpperCase()+'</div>'
+    +   '<div style="font:800 14.5px system-ui,sans-serif; color:'+sc.onSurface+'; margin-top:1px">'+s2.h+'</div>'
+    +   (s2.b ? '<div style="font:600 12.5px system-ui,sans-serif; color:'+sc.onSurfaceVar+'; line-height:1.45; margin-top:3px">'+s2.b+'</div>' : '')
+    + '</div></div>').join("");
+})();
+
+
+incAdd(); billAdd();   /* one empty card each, ready to type into */
+
+/* The burden of proof is on this page now: the app assumes setup FAILED until
+   this beacon arrives. Two animation frames guarantee a real paint happened;
+   the size check catches the one failure a DOM check cannot — a screen that
+   exists but occupies no pixels. */
+(function(){
+  function measure(){
+    var r = { w: 0, h: 0, ph: 0, vh: 0 };
+    try{
+      var el = document.getElementById("pg0"), ph = document.getElementById("phone");
+      if (el){ r.w = el.offsetWidth || 0; r.h = el.offsetHeight || 0; }
+      if (ph){ r.ph = ph.offsetHeight || 0; }
+      r.vh = window.innerHeight || 0;
+    }catch(_){}
+    return r;
+  }
+  function announce(){
+    var m = measure();
+    var ok = m.w > 0 && m.h > 0 && m.ph > 0;
+    try{ window.__ledgiiPainted = ok ? 1 : 0; }catch(_){}
+    try{
+      if (window.LedgiiSetupBridge && window.LedgiiSetupBridge.alive)
+        /* Sizes travel with the verdict: if this ever collapses again, the app
+           can say WHICH measurement was zero instead of showing a blank. */
+        window.LedgiiSetupBridge.alive(ok ? "1" : "0",
+          m.w + "x" + m.h + " page, " + m.ph + " container, " + m.vh + " window");
+    }catch(_){}
+  }
+  /* A panel measured after the page loads resizes the window underneath it.
+     Re-checking on resize turns a late measurement into a recovery instead of
+     a permanent blank. */
+  try{
+    window.addEventListener("resize", function(){
+      if (window.__ledgiiPainted !== 1) announce();
+    });
+  }catch(_){}
+  if (window.requestAnimationFrame){
+    requestAnimationFrame(function(){ requestAnimationFrame(announce); });
+  } else setTimeout(announce, 50);
+})();
+const c=document.getElementById("code"), j=document.getElementById("join");
+c.addEventListener("input",()=>{ c.value=c.value.toUpperCase().trim();
+  const ok=c.value.length>=4;
+  j.style.background=ok?sc.primary:sc.surfaceCHH; j.style.color=ok?sc.onPrimary:sc.onSurfaceVar; });
+/* ── handoff ──
+   The flow collects real data, so finishing hands it back to whichever host is
+   running it: the Android bridge, or the web app's callback. Same HTML both ways. */
+function payload(extra){
+  return JSON.stringify(Object.assign({
+    income: state.income, bills: state.bills, checking: state.checking,
+    expected: state.expected, incomeOverrides: state.incomeOverrides
+  }, extra || {}));
+}
+function handoff(obj){
+  const p = payload(obj);
+  try { if (window.LedgiiSetupBridge) { window.LedgiiSetupBridge.done(p); return; } } catch (_) {}
+  try { if (window.__setupDone) { window.__setupDone(p); return; } } catch (_) {}
+}
+document.getElementById("cta").addEventListener("click", function(){
+  const plan = ["monthly","yearly","lifetime"][chosenPlan];
+  celebrate(plan, function(){ handoff({ plan: plan, joined: false }); });
+});
+/* Confirm, hold, then leave. Roughly 1.6s — long enough to register that it
+   worked, short enough that nobody taps again wondering if it did. */
+function celebrate(plan, then){
+  const lifetime = plan === "lifetime";
+  const wrap = document.createElement("div");
+  wrap.className = "su-done";
+  wrap.style.background = sc.surface;
+  wrap.innerHTML =
+    '<div class="su-ring" style="background:' + sc.primaryC + '">'
+    + '<svg viewBox="0 0 24 24" width="38" height="38" fill="none" stroke="' + sc.onPrimaryC
+    + '" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 L10 17.5 L19 7"/></svg></div>'
+    + '<h2 style="color:' + sc.onSurface + '">' + (lifetime ? "Ledgii is yours." : "You\u2019re all set.") + '</h2>'
+    + '<p style="color:' + sc.onSurfaceVar + '">' + (lifetime
+        ? "Pay once, never again. Your plan is ready."
+        : "Your free " + TRIAL_DAYS + " days start now. We\u2019ll remind you on day " + TRIAL_WARN_DAY + ".") + '</p>';
+  phone.appendChild(wrap);
+  setTimeout(function(){
+    phone.classList.add("su-leave");
+    setTimeout(then, 380);          /* hand off as the last frame fades */
+  }, 1250);
+}
+/* Finishing at the Plan page. Payments are not live, so there is nothing to
+   choose here and no plan to report — the flow just hands the collected data
+   back. The paywall (pg5) is still in the markup and still wired up; nothing
+   navigates to it, which is what makes this reversible when the early-access
+   page replaces it. */
+function finish(){
+  const wrap = document.createElement("div");
+  wrap.className = "su-done";
+  wrap.style.background = sc.surface;
+  wrap.innerHTML =
+    '<div class="su-ring" style="background:' + sc.primaryC + '">'
+    + '<svg viewBox="0 0 24 24" width="38" height="38" fill="none" stroke="' + sc.onPrimaryC
+    + '" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 L10 17.5 L19 7"/></svg></div>'
+    + '<h2 style="color:' + sc.onSurface + '">You\u2019re all set.</h2>'
+    + '<p style="color:' + sc.onSurfaceVar + '">Your plan is ready. Everything you just entered is in the app.</p>';
+  phone.appendChild(wrap);
+  setTimeout(function(){
+    phone.classList.add("su-leave");
+    setTimeout(function(){ handoff({ joined: false }); }, 380);
+  }, 1250);
+}
+
+j.addEventListener("click",()=>{ if(c.value.length>=4){
+  /* Joining skips setup entirely: the partner's ledger arrives from the cloud. */
+  handoff({ joined: true, code: c.value.trim() }); } });
+
+  /* Inline handlers in the markup run in global scope, so the functions they
+     call are exposed here rather than left in the closure. */
+  return {
+    go: go, pick: pick, finish: finish, toggleWeek: toggleWeek,
+    incAdd: incAdd, incDel: incDel, incBi: incBi,
+    billAdd: billAdd, billDel: billDel, billFreq: billFreq,
+    setHorizon: function(w){ horizon = w; renderPlan(); },
+    version: 2
+  };
+})();
+
+</script>
+</body></html>
