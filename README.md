@@ -2,7 +2,7 @@
 
 <img src="app_icon.png" alt="Ledgii Logo" width="128" height="128" style="border-radius: 28px;" />
 
-# Ledgii (120Hz & Privacy Hardened)
+# Ledgii (Material 3 Expressive Expense Tracker)
 
 [![Platform](https://img.shields.io/badge/Platform-Android_8.0+-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://www.android.com/)
 [![Version](https://img.shields.io/badge/Version-v1.0.0-blue?style=for-the-badge)](https://github.com/smartworldarafath/Ledgii/releases)
